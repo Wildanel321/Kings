@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Particles + Gemini AI</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', sans-serif; }
+        canvas { display: block; }
+        
+        /* Glassmorphism Utilities */
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Mirrored Video for Preview */
+        #video-preview {
+            transform: scaleX(-1);
+            object-fit: cover;
+        }
+
+        /* Loading Spinner */
+        .loader {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: #00ffcc;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Custom Scrollbar for Modal */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1a1a1a; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+    </style>
+</head>
+<body class="text-white">
+
+    <div id="loading-screen" class="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center transition-opacity duration-500">
+        <div class="loader mb-4"></div>
+        <h2 class="text-xl font-light tracking-widest text-cyan-400">INITIALIZING SYSTEMS...</h2>
+        <p id="loading-text" class="text-xs text-gray-500 mt-2">Loading Libraries & Models</p>
+    </div>
+
+    <div class="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-6">
+        
+        <div class="flex justify-between items-start pointer-events-auto">
+            <div class="glass rounded-xl p-4 max-w-sm">
+                <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500">
+                    PARTICLE GESTURE CORE
+                </h1>
+                <div class="mt-2 text-xs text-gray-300 space-y-1">
+                    <p><span class="text-yellow-400">✊ Fist:</span> Saturn Mode</p>
+                    <p><span class="text-green-400">✌️ V-Sign:</span> "I LOVE YOU"</p>
+                    <p><span class="text-pink-400">🤌 Heart:</span> Love Heart</p>
+                    <p><span class="text-blue-400">🖐 Open:</span> Rainbow Sphere</p>
+                </div>
+            </div>
+
+            <div class="glass rounded-xl p-2 w-48 h-36 flex flex-col items-center relative overflow-hidden">
+                <video id="video-preview" class="w-full h-full rounded-lg bg-black"></video>
+                <div class="absolute bottom-2 left-2 bg-black/60 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider">
+                    Cam Feed
+                </div>
+            </div>
+        </div>
+
+        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
+            <h2 id="gesture-label" class="text-4xl md:text-6xl font-black text-white/10 uppercase tracking-widest transition-all duration-300">
+                WAITING...
+            </h2>
+        </div>
+
+        <div class="flex justify-between items-end pointer-events-auto">
+            <button onclick="openModal()" class="glass hover:bg-white/10 transition-colors px-6 py-3 rounded-full flex items-center gap-2 group">
+                <span class="material-icons text-purple-400 group-hover:text-purple-300">auto_awesome</span>
+                <span class="font-semibold text-sm">AI MAGIC</span>
+            </button>
+
+            <div class="glass px-4 py-2 rounded-full flex items-center gap-2">
+                 <span class="material-icons text-gray-400 text-sm">vpn_key</span>
+                 <input type="password" id="api-key-input" placeholder="Enter Gemini API Key" class="bg-transparent border-none outline-none text-xs w-32 focus:w-64 transition-all text-white">
+            </div>
+            
+            <button onclick="toggleFullScreen()" class="glass hover:bg-white/10 p-3 rounded-full transition-colors">
+                <span class="material-icons text-white">fullscreen</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="ai-modal" class="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div class="glass bg-[#111] w-full max-w-lg rounded-2xl p-6 transform scale-95 transition-transform duration-300 relative border-t-4 border-purple-500">
+            <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-white">
+                <span class="material-icons">close</span>
+            </button>
+            
+            <h2 class="text-2xl font-bold mb-1 flex items-center gap-2">
+                <span class="material-icons text-purple-500">psychology</span>
+                Gemini Particle Architect
+            </h2>
+            <p class="text-sm text-gray-400 mb-6">Describe a shape (e.g., "Spiral DNA", "Exploding Fireworks", "Matrix Rain"). Gemini will write the math to generate it.</p>
+            
+            <textarea id="ai-prompt" rows="3" class="w-full bg-black/50 border border-gray-700 rounded-lg p-3 text-white focus:border-purple-500 outline-none resize-none mb-4" placeholder="Type your imagination here..."></textarea>
+            
+            <button onclick="generateParticles()" id="generate-btn" class="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 py-3 rounded-lg font-bold tracking-wide transition-all flex justify-center items-center gap-2">
+                GENERATE CODE
+            </button>
+            
+            <div id="ai-status" class="mt-3 text-center text-xs text-gray-400 h-4"></div>
+        </div>
+    </div>
+
+    <div id="canvas-container" class="w-full h-screen"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+        import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+        import { MeshSurfaceSampler } from 'three/addons/math/MeshSurfaceSampler.js';
+
+        // --- GLOBAL CONFIGURATION ---
+        const CONFIG = {
+            particleCount: 20000,
+            cameraZ: 35,
+            lerpSpeed: 0.08, // Speed of morphing
+            bloomStrength: 1.5,
+            bloomRadius: 0.4,
+            bloomThreshold: 0.1
+        };
+
+        // --- STATE ---
+        let scene, camera, renderer, composer, controls;
+        let particles, geometry;
+        let posArray, colorArray, targetPosArray, targetColorArray;
+        let currentShape = 'sphere'; // sphere, saturn, heart, text, custom
+        let textSampler = null; // Store sampler for efficiency
+        let isAiGenerating = false;
+        let lastGestureTime = 0;
+        
+        // --- DOM ELEMENTS ---
+        const gestureLabel = document.getElementById('gesture-label');
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingText = document.getElementById('loading-text');
+
+        // --- INIT ---
+        async function init() {
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x000000, 0.002);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = CONFIG.cameraZ;
+
+            renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true }); // Bloom handles AA better usually without native AA
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // 2. Post Processing (Bloom)
+            const renderScene = new RenderPass(scene, camera);
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = CONFIG.bloomThreshold;
+            bloomPass.strength = CONFIG.bloomStrength;
+            bloomPass.radius = CONFIG.bloomRadius;
+
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
+            // 3. Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.5;
+
+            // 4. Particle System Initialization
+            initParticles();
+
+            // 5. Pre-calculate Text Sampler (Async)
+            loadingText.innerText = "Loading Fonts...";
+            await initTextSampler();
+
+            // 6. MediaPipe Setup
+            loadingText.innerText = "Starting Vision AI...";
+            await initMediaPipe();
+
+            // 7. Event Listeners
+            window.addEventListener('resize', onWindowResize);
+
+            // Remove Loading Screen
+            loadingScreen.style.opacity = '0';
+            setTimeout(() => loadingScreen.style.display = 'none', 500);
+
+            // Start Loop
+            animate();
+        }
+
+        function initParticles() {
+            geometry = new THREE.BufferGeometry();
+            posArray = new Float32Array(CONFIG.particleCount * 3);
+            colorArray = new Float32Array(CONFIG.particleCount * 3);
+            targetPosArray = new Float32Array(CONFIG.particleCount * 3);
+            targetColorArray = new Float32Array(CONFIG.particleCount * 3);
+
+            for (let i = 0; i < CONFIG.particleCount; i++) {
+                // Start random
+                posArray[i * 3] = (Math.random() - 0.5) * 100;
+                posArray[i * 3 + 1] = (Math.random() - 0.5) * 100;
+                posArray[i * 3 + 2] = (Math.random() - 0.5) * 100;
+
+                colorArray[i * 3] = 1;
+                colorArray[i * 3 + 1] = 1;
+                colorArray[i * 3 + 2] = 1;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+
+            const material = new THREE.PointsMaterial({
+                size: 0.15,
+                vertexColors: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                transparent: true
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+
+            // Initial Shape
+            transformToSphere();
+        }
+
+        function initTextSampler() {
+            return new Promise((resolve) => {
+                const loader = new FontLoader();
+                loader.load('https://unpkg.com/three@0.160.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {
+                    const textGeo = new TextGeometry('I LOVE YOU', {
+                        font: font,
+                        size: 4,
+                        height: 1, // Thickness
+                        curveSegments: 12,
+                        bevelEnabled: true,
+                        bevelThickness: 0.1,
+                        bevelSize: 0.05,
+                        bevelSegments: 5
+                    });
+                    
+                    textGeo.center();
+                    const mesh = new THREE.Mesh(textGeo);
+                    textSampler = new MeshSurfaceSampler(mesh).build();
+                    resolve();
+                });
+            });
+        }
+
+        // --- SHAPE TRANSFORMATION LOGIC ---
+
+        function updateParticles() {
+            const positions = particles.geometry.attributes.position.array;
+            const colors = particles.geometry.attributes.color.array;
+
+            for (let i = 0; i < CONFIG.particleCount * 3; i++) {
+                // Lerp Position
+                positions[i] += (targetPosArray[i] - positions[i]) * CONFIG.lerpSpeed;
+                // Lerp Color
+                colors[i] += (targetColorArray[i] - colors[i]) * CONFIG.lerpSpeed;
+            }
+
+            particles.geometry.attributes.position.needsUpdate = true;
+            particles.geometry.attributes.color.needsUpdate = true;
+        }
+
+        // 1. SPHERE (Rainbow)
+        function transformToSphere() {
+            if(currentShape === 'sphere') return;
+            currentShape = 'sphere';
+            gestureLabel.innerText = "RAINBOW SPHERE";
+            gestureLabel.style.color = "#ffffff";
+            
+            for (let i = 0; i < CONFIG.particleCount; i++) {
+                const u = Math.random();
+                const v = Math.random();
+                const theta = 2 * Math.PI * u;
+                const phi = Math.acos(2 * v - 1);
+                const r = 10 + Math.random() * 2; // Radius with noise
+
+                targetPosArray[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+                targetPosArray[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                targetPosArray[i * 3 + 2] = r * Math.cos(phi);
+
+                // Rainbow Colors
+                const color = new THREE.Color().setHSL(u, 1.0, 0.5);
+                targetColorArray[i * 3] = color.r;
+                targetColorArray[i * 3 + 1] = color.g;
+                targetColorArray[i * 3 + 2] = color.b;
+            }
+        }
+
+        // 2. SATURN (Fist)
+        function transformToSaturn() {
+            if(currentShape === 'saturn') return;
+            currentShape = 'saturn';
+            gestureLabel.innerText = "SATURN MODE";
+            gestureLabel.style.color = "#4fd1c5"; // Teal/Blue
+
+            for (let i = 0; i < CONFIG.particleCount; i++) {
+                const isRing = i > CONFIG.particleCount * 0.3; // 70% rings
+                
+                if (!isRing) {
+                    // Central Sphere (Blue)
+                    const u = Math.random();
+                    const v = Math.random();
+                    const theta = 2 * Math.PI * u;
+                    const phi = Math.acos(2 * v - 1);
+                    const r = 6; 
+
+                    targetPosArray[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+                    targetPosArray[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                    targetPosArray[i * 3 + 2] = r * Math.cos(phi);
+
+                    targetColorArray[i * 3] = 0.1;
+                    targetColorArray[i * 3 + 1] = 0.4;
+                    targetColorArray[i * 3 + 2] = 1.0;
+                } else {
+                    // Rings (Gold/Beige)
+                    const angle = Math.random() * Math.PI * 2;
+                    // Radius between 9 and 16
+                    const r = 9 + Math.random() * 7; 
+                    
+                    targetPosArray[i * 3] = Math.cos(angle) * r;
+                    targetPosArray[i * 3 + 1] = (Math.random() - 0.5) * 0.5; // Flat y
+                    targetPosArray[i * 3 + 2] = Math.sin(angle) * r;
+
+                    // Tilt the ring coordinates manually if needed, or rotate container.
+                    // Let's do a simple tilt math here:
+                    const x = targetPosArray[i * 3];
+                    const y = targetPosArray[i * 3 + 1];
+                    const z = targetPosArray[i * 3 + 2];
+                    
+                    // Rotate around X by 20 degrees
+                    const cosA = Math.cos(0.4); 
+                    const sinA = Math.sin(0.4);
+                    
+                    targetPosArray[i * 3 + 1] = y * cosA - z * sinA;
+                    targetPosArray[i * 3 + 2] = y * sinA + z * cosA;
+
+                    targetColorArray[i * 3] = 0.8;
+                    targetColorArray[i * 3 + 1] = 0.7;
+                    targetColorArray[i * 3 + 2] = 0.4;
+                }
+            }
+        }
+
+        // 3. HEART (Finger Heart)
+        function transformToHeart() {
+            if(currentShape === 'heart') return;
+            currentShape = 'heart';
+            gestureLabel.innerText = "LOVE DETECTED";
+            gestureLabel.style.color = "#ec4899"; // Pink
+
+            for (let i = 0; i < CONFIG.particleCount; i++) {
+                // Parametric Heart
+                // x = 16sin^3(t)
+                // y = 13cos(t) - 5cos(2t) - 2cos(3t) - cos(4t)
+                const t = Math.random() * Math.PI * 2;
+                const scale = 0.5; // Adjust size
+                
+                // Add some volume (thickness)
+                const thickness = (Math.random() - 0.5) * 4;
+
+                const x = 16 * Math.pow(Math.sin(t), 3);
+                const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+                
+                targetPosArray[i * 3] = x * scale;
+                targetPosArray[i * 3 + 1] = y * scale;
+                targetPosArray[i * 3 + 2] = thickness;
+
+                targetColorArray[i * 3] = 1.0;
+                targetColorArray[i * 3 + 1] = 0.0;
+                targetColorArray[i * 3 + 2] = 0.4; // Hot Pink
+            }
+        }
+
+        // 4. TEXT (V-Sign)
+        function transformToText() {
+            if(currentShape === 'text') return;
+            if(!textSampler) return;
+            
+            currentShape = 'text';
+            gestureLabel.innerText = "I LOVE YOU";
+            gestureLabel.style.color = "#fbbf24"; // Gold
+
+            const tempPos = new THREE.Vector3();
+            for (let i = 0; i < CONFIG.particleCount; i++) {
+                textSampler.sample(tempPos);
+                targetPosArray[i * 3] = tempPos.x;
+                targetPosArray[i * 3 + 1] = tempPos.y;
+                targetPosArray[i * 3 + 2] = tempPos.z;
+
+                targetColorArray[i * 3] = 1.0;
+                targetColorArray[i * 3 + 1] = 0.8;
+                targetColorArray[i * 3 + 2] = 0.2;
+            }
+        }
+
+        // --- MEDIAPIPE & GESTURE LOGIC ---
+
+        async function initMediaPipe() {
+            const videoElement = document.getElementById('video-preview');
+            
+            const hands = new Hands({locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }});
+            
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.7,
+                minTrackingConfidence: 0.7
+            });
+
+            hands.onResults(onHandsResults);
+
+            const cameraUtils = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({image: videoElement});
+                },
+                width: 640,
+                height: 480
+            });
+            cameraUtils.start();
+        }
+
+        function onHandsResults(results) {
+            // Rate limiter for gesture checks to avoid jitter
+            const now = Date.now();
+            if (now - lastGestureTime < 200) return; // Check every 200ms
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                lastGestureTime = now;
+                const landmarks = results.multiHandLandmarks[0];
+                detectGesture(landmarks);
+            }
+        }
+
+        function detectGesture(landmarks) {
+            // Helper to get distance
+            const dist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y, p1.z - p2.z);
+            
+            // Fingers state (Tip vs PIP joint - simplified)
+            // 0: Thumb, 1: Index, 2: Middle, 3: Ring, 4: Pinky
+            // Landmarks: 4(ThumbTip), 8(IndexTip), 12(MidTip), 16(RingTip), 20(PinkyTip)
+            // Bases (MCP): 2, 5, 9, 13, 17
+            
+            // Is Finger Extended? (Tip y < Base y for upright hand) - Note: Y increases downwards in MediaPipe coords
+            const isIndexUp = landmarks[8].y < landmarks[6].y;
+            const isMiddleUp = landmarks[12].y < landmarks[10].y;
+            const isRingUp = landmarks[16].y < landmarks[14].y;
+            const isPinkyUp = landmarks[20].y < landmarks[18].y;
+
+            // 1. FIST (Saturn) - All fingers down
+            if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) {
+                transformToSaturn();
+                return;
+            }
+
+            // 2. V-SIGN (Text) - Index + Middle Up, others down
+            if (isIndexUp && isMiddleUp && !isRingUp && !isPinkyUp) {
+                transformToText();
+                return;
+            }
+
+            // 3. FINGER HEART (Heart)
+            // Thumb tip (4) close to Index tip (8). Index roughly aligned with Thumb.
+            const thumbIndexDist = dist(landmarks[4], landmarks[8]);
+            // Tolerance needs tuning
+            if (thumbIndexDist < 0.05 && !isMiddleUp && !isRingUp && !isPinkyUp) {
+                transformToHeart();
+                return;
+            }
+
+            // 4. OPEN HAND (Rainbow Sphere)
+            if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) {
+                transformToSphere();
+                return;
+            }
+        }
+
+
+        // --- GEMINI AI INTEGRATION ---
+
+        window.openModal = () => {
+            const modal = document.getElementById('ai-modal');
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.remove('opacity-0'), 10);
+            isAiGenerating = true; // Pause gesture overrides
+        };
+
+        window.closeModal = () => {
+            const modal = document.getElementById('ai-modal');
+            modal.classList.add('opacity-0');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+            isAiGenerating = false;
+        };
+
+        window.generateParticles = async () => {
+            const promptText = document.getElementById('ai-prompt').value;
+            const apiKey = document.getElementById('api-key-input').value || ''; 
+            const statusEl = document.getElementById('ai-status');
+
+            if (!apiKey) {
+                statusEl.innerText = "Error: Please enter a Gemini API Key.";
+                statusEl.className = "mt-3 text-center text-xs text-red-500 h-4";
+                return;
+            }
+            if(!promptText) return;
+
+            statusEl.innerText = "Consulting Gemini...";
+            statusEl.className = "mt-3 text-center text-xs text-purple-400 h-4 animate-pulse";
+
+            const sysPrompt = `
+            You are a JavaScript visual effects generator. 
+            I have a particle system with 20000 particles.
+            I need raw JavaScript code to calculate 'x', 'y', 'z' coordinates and 'r', 'g', 'b' colors (0-1 range).
+            
+            Variables available in the scope:
+            - 'i': current particle index (0 to 19999)
+            - 'total': total count (20000)
+            - 'Math': standard JS Math object
+
+            Rules:
+            1. Return ONLY the code inside the loop. No markdown, no 'for' loop wrapper, no explanations.
+            2. Assign values to variables: x, y, z, r, g, b.
+            3. Center the shape around (0,0,0). Scale should be approx -10 to 10.
+            4. Based on user prompt: "${promptText}"
+            `;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: sysPrompt }] }]
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (!data.candidates || !data.candidates[0].content) {
+                    throw new Error("Invalid response from Gemini");
+                }
+
+                let code = data.candidates[0].content.parts[0].text;
+                // Clean markdown code blocks if present
+                code = code.replace(/```javascript/g, '').replace(/```/g, '').trim();
+
+                applyAiCode(code);
+                
+                statusEl.innerText = "Shape Generated Successfully!";
+                statusEl.className = "mt-3 text-center text-xs text-green-500 h-4";
+                
+                currentShape = 'custom';
+                gestureLabel.innerText = "AI GENERATED";
+                gestureLabel.style.color = "#a855f7"; // Purple
+                setTimeout(closeModal, 1000);
+
+            } catch (err) {
+                console.error(err);
+                statusEl.innerText = "Error generating code. Check API Key or Console.";
+                statusEl.className = "mt-3 text-center text-xs text-red-500 h-4";
+            }
+        };
+
+        function applyAiCode(loopBody) {
+            // Create a function that loops and executes the logic
+            // NOTE: Using new Function is risky in prod, but per requirements.
+            try {
+                // We construct a single function to run the whole loop for performance
+                // rather than calling a function 20k times.
+                
+                // We need to inject the loop body into a loop structure
+                const fullFunctionString = `
+                    for(let i=0; i < count; i++) {
+                        let x=0, y=0, z=0, r=1, g=1, b=1;
+                        let total = count;
+                        
+                        ${loopBody}
+
+                        targetPos[i*3] = x;
+                        targetPos[i*3+1] = y;
+                        targetPos[i*3+2] = z;
+                        targetCol[i*3] = r;
+                        targetCol[i*3+1] = g;
+                        targetCol[i*3+2] = b;
+                    }
+                `;
+
+                const generator = new Function('count', 'targetPos', 'targetCol', fullFunctionString);
+                
+                generator(CONFIG.particleCount, targetPosArray, targetColorArray);
+
+            } catch (e) {
+                console.error("AI Code Execution Failed:", e);
+                alert("The AI generated invalid code. Please try a simpler prompt.");
+            }
+        }
+
+        // --- UTILS ---
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        window.toggleFullScreen = () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        };
+
+        // --- ANIMATION LOOP ---
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            controls.update();
+            updateParticles();
+            
+            // Always update global time for shaders/math if needed
+            // const time = performance.now() * 0.001;
+
+            composer.render();
+        }
+
+        // Start everything
+        init();
+
+    </script>
+    
+    </body>
+</html>
